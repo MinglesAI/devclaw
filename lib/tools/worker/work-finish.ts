@@ -168,7 +168,7 @@ async function validatePrExistsForDeveloper(
   } catch (err) {
     // Re-throw our own validation errors; swallow provider/network errors.
     // Swallowing keeps work_finish unblocked when the API is unreachable.
-    if (err instanceof Error && err.message.startsWith("Cannot mark work_finish(done)") || err.message.startsWith("Cannot complete work_finish(done)")) {
+    if (err instanceof Error && (err.message.startsWith("Cannot mark work_finish(done)") || err.message.startsWith("Cannot complete work_finish(done)"))) {
       throw err;
     }
     console.warn(`PR validation warning for issue #${issueId}:`, err);
