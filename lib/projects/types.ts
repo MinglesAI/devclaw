@@ -15,6 +15,8 @@ export type SlotState = {
   previousLabel?: string | null;
   /** Deterministic fun name for this slot (e.g. "Ada", "Grace"). */
   name?: string;
+  /** Last issue this slot worked on (preserved on deactivation for feedback cycle detection). */
+  lastIssueId?: string | null;
 };
 
 /** Per-level worker state: levels map instead of flat slots array. */

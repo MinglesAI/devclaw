@@ -224,7 +224,7 @@ describe("work_finish: PR validation and conflict resolution", () => {
     it("should correctly check for validation error type", () => {
       // Test that our error checking logic is correct
       const validationError = new Error("Cannot mark work_finish(done) without an open PR.");
-      const networkError = new Error("Failed to fetch PR status");
+      const networkError = new Error("Failed to retrieve PR status");
       
       // Simulate our error check logic
       const shouldThrowValidation = 

@@ -130,7 +130,7 @@ Use cases:
         const publicUrl = await provider.uploadAttachment(issueId, { filename, buffer, mimeType });
         if (publicUrl) meta.publicUrl = publicUrl;
 
-        // Post comment on issue
+        // Add comment on issue
         const comment = formatAttachmentComment([meta]);
         await provider.addComment(issueId, comment);
 

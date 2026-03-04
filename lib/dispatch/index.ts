@@ -101,21 +101,24 @@ export async function dispatchTask(
   const slot = roleWorker.levels[level]?.[slotIndex] ?? emptySlot();
   let existingSessionKey = slot.sessionKey;
 
-  // Deactivated slot (issueId null) means session belongs to a previous issue — don't reuse
+  // Deactivated slot: preserve session if same issue is returning (feedback cycle)
   if (existingSessionKey && !slot.issueId) {
-    rc(
-      ["openclaw", "gateway", "call", "sessions.delete", "--params", JSON.stringify({ key: existingSessionKey })],
-      { timeoutMs: 10_000 },
-    ).catch(() => {});
-    existingSessionKey = null;
+    const isSameIssueReturn = slot.lastIssueId && String(issueId) === String(slot.lastIssueId);
+    if (!isSameIssueReturn) {
+      await rc(
+        ["openclaw", "gateway", "call", "sessions.delete", "--params", JSON.stringify({ key: existingSessionKey })],
+        { timeoutMs: 10_000 },
+      ).catch(() => {});
+      existingSessionKey = null;
+    }
   }
 
   // Context budget check: clear session if over budget (unless same issue — feedback cycle)
   if (existingSessionKey && timeouts.sessionContextBudget < 1) {
     const shouldClear = await shouldClearSession(existingSessionKey, slot.issueId, issueId, timeouts, workspaceDir, project.name, rc);
     if (shouldClear) {
-      // Delete the gateway session (fire-and-forget)
-      rc(
+      // Delete the gateway session (await to prevent race with later sessions.patch)
+      await rc(
         ["openclaw", "gateway", "call", "sessions.delete", "--params", JSON.stringify({ key: existingSessionKey })],
         { timeoutMs: 10_000 },
       ).catch(() => {});
@@ -134,8 +137,8 @@ export async function dispatchTask(
   // Clear stale session key if it doesn't match the current deterministic key
   // (handles migration from old numeric format like ...-0 to name-based ...-Cordelia)
   if (existingSessionKey && existingSessionKey !== sessionKey) {
-    // Delete the orphaned gateway session (fire-and-forget)
-    rc(
+    // Delete the orphaned gateway session (await to prevent race with later sessions.patch)
+    await rc(
       ["openclaw", "gateway", "call", "sessions.delete", "--params", JSON.stringify({ key: existingSessionKey })],
       { timeoutMs: 10_000 },
     ).catch(() => {});
@@ -286,7 +289,7 @@ export async function dispatchTask(
   // Model is set on the session via sessions.patch (step 3), not on the agent RPC —
   // the gateway's agent endpoint rejects unknown properties like 'model'.
   sendToAgent(sessionKey, taskMessage, {
-    agentId, projectName: project.name, issueId, role, level, slotIndex,
+    agentId, projectName: project.name, issueId, role, level, slotIndex, fromLabel,
     orchestratorSessionKey: opts.sessionKey, workspaceDir,
     dispatchTimeoutMs: timeouts.dispatchMs,
     extraSystemPrompt: roleInstructions.trim() || undefined,

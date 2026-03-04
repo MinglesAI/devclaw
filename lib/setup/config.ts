@@ -35,6 +35,7 @@ export async function writePluginConfig(
   // Clean up legacy models from openclaw.json (moved to workflow.yaml)
   delete (config as any).plugins.entries.devclaw.config.models;
 
+  ensurePluginAllowed(config);
   ensureInternalHooks(config);
   ensureHeartbeatDefaults(config);
   configureSubagentCleanup(config);
@@ -59,6 +60,17 @@ function ensurePluginStructure(config: Record<string, unknown>): void {
   if (!entries.devclaw) entries.devclaw = {};
   const devclaw = entries.devclaw as Record<string, unknown>;
   if (!devclaw.config) devclaw.config = {};
+}
+
+/**
+ * Ensure "devclaw" is in plugins.allow so OpenClaw trusts the plugin
+ * without requiring manual config after install.
+ */
+function ensurePluginAllowed(config: Record<string, unknown>): void {
+  const plugins = config.plugins as Record<string, unknown>;
+  if (!Array.isArray(plugins.allow)) plugins.allow = [];
+  const allow = plugins.allow as string[];
+  if (!allow.includes("devclaw")) allow.push("devclaw");
 }
 
 function configureSubagentCleanup(config: Record<string, unknown>): void {

@@ -326,7 +326,7 @@ export async function processAttachmentMessage(opts: {
     }
   }
 
-  // Post comment on issue with attachment info
+  // Add comment on issue with attachment info
   if (saved.length > 0) {
     const comment = formatAttachmentComment(saved);
     try {

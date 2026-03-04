@@ -105,6 +105,7 @@ export async function activateWorker(
       startTime: params.startTime ?? new Date().toISOString(),
       previousLabel: params.previousLabel ?? null,
       name: params.name ?? slots[idx]!.name,
+      lastIssueId: null,
     };
 
     project.workers[role] = rw;
@@ -163,6 +164,7 @@ export async function deactivateWorker(
           startTime: null,
           previousLabel: null,
           name: slot.name,
+          lastIssueId: slot.issueId,
         };
       }
     }
