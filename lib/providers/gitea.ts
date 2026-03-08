@@ -46,9 +46,13 @@ export class GiteaProvider implements IssueProvider {
   }
 
   async ensureLabel(name: string, color: string): Promise<void> {
-    // tea doesn't have native label management via CLI
-    // Labels can be created via Gitea web UI or API
-    // This is a no-op for now - labels should be created manually
+    // tea doesn't have native label management via CLI.
+    // We fail loudly here so that admin flows (project_register, sync_labels)
+    // don't silently report success while required workflow labels are missing.
+    throw new Error(
+      `GiteaProvider cannot automatically ensure label "${name}" (${color}) in repo at "${this.repoPath}". ` +
+      `Please create or update this label manually in Gitea (via web UI or API), then re-run the operation.`
+    );
   }
 
   async ensureAllStateLabels(): Promise<void> {
@@ -89,7 +93,13 @@ export class GiteaProvider implements IssueProvider {
     try {
       const args = ["issue", "list", "--output", "json"];
       if (opts?.label) args.push("--labels", opts.label);
-      if (opts?.state === "closed") args.push("--closed");
+      if (opts?.state === "closed") {
+        args.push("--closed");
+      } else if (opts?.state === "open") {
+        args.push("--open");
+      } else if (opts?.state === "all") {
+        args.push("--all");
+      }
 
       const raw = await this.tea(args);
       return this.parseIssues(raw);
@@ -138,20 +148,26 @@ export class GiteaProvider implements IssueProvider {
   }
 
   async reopenIssue(issueId: number): Promise<void> {
-    // tea doesn't support reopen via CLI
-    throw new Error("Reopen not supported via tea CLI");
+    // Best-effort reopen: try via tea CLI, but don't fail the workflow if unsupported.
+    try {
+      await this.tea(["issue", "reopen", String(issueId)]);
+    } catch {
+      // Reopen not supported or failed; ignore to keep failure loop functional.
+    }
   }
 
   async getMergedMRUrl(issueId: number): Promise<string | null> {
     // tea doesn't have PR linking like GitLab
-    // Search PRs mentioning the issue
+    // Search merged PRs mentioning the issue
     try {
       const raw = await this.tea(["pull", "list", "--output", "json"]);
       const prs = JSON.parse(raw);
-      // Find PRs that mention this issue
+      // Find merged PRs that mention this issue
       const mentioningPr = prs.find((pr: any) =>
-        pr.body?.includes(`#${issueId}`) ||
-        pr.title?.includes(`#${issueId}`)
+        pr.state === "merged" && (
+          pr.body?.includes(`#${issueId}`) ||
+          pr.title?.includes(`#${issueId}`)
+        )
       );
       return mentioningPr?.html_url ?? null;
     } catch {
@@ -282,8 +298,11 @@ export class GiteaProvider implements IssueProvider {
   }
 
   async addComment(issueId: number, body: string): Promise<number> {
-    // tea doesn't support adding comments via CLI
-    throw new Error("addComment not supported via tea CLI");
+    // Use tea CLI to add a comment to an issue.
+    // Note: comment ID is not parsed from output here; callers that rely on
+    // the side-effect (the comment being created) can proceed without it.
+    await this.tea(["issue", "comment", "create", String(issueId), "--body", body]);
+    return 0;
   }
 
   async editIssue(issueId: number, updates: { title?: string; body?: string }): Promise<Issue> {
