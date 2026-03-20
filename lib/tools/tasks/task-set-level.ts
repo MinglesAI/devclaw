@@ -30,6 +30,10 @@ Examples:
           type: "string",
           description: "YOUR chat/group ID — the numeric ID of the chat you are in right now (e.g. '-1003844794417'). Do NOT guess; use the ID of the conversation this message came from.",
         },
+        messageThreadId: {
+          type: "number",
+          description: "Optional Telegram forum topic ID for this project (message_thread_id). When provided, resolves the topic-bound project within the chat.",
+        },
         issueId: {
           type: "number",
           description: "Issue ID to update",
@@ -56,7 +60,14 @@ Examples:
         throw new Error("'level' is required.");
       }
 
-      const { project } = await resolveProject(workspaceDir, channelId);
+      const messageThreadId = params.messageThreadId as number | undefined;
+      const channelType = (toolCtx.messageChannel as string | undefined) ?? "telegram";
+      const accountId = toolCtx.agentAccountId as string | undefined;
+      const { project } = await resolveProject(workspaceDir, channelId, {
+        channel: channelType,
+        accountId,
+        messageThreadId,
+      });
       const { provider, type: providerType } = await resolveProvider(project, ctx.runCommand);
       const resolvedConfig = await loadConfig(workspaceDir, project.name);
 

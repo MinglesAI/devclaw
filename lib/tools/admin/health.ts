@@ -12,7 +12,7 @@
  *
  * Read-only by default (surfaces issues). Pass fix=true to apply fixes.
  */
-import { jsonResult } from "openclaw/plugin-sdk";
+import { jsonResult } from "openclaw/plugin-sdk/channel-runtime";
 import type { PluginContext } from "../../context.js";
 import type { ToolContext } from "../../types.js";
 import { readProjects, getProject } from "../../projects/index.js";
@@ -44,6 +44,8 @@ export function createHealthTool(ctx: PluginContext) {
       // Resolve slug from slugOrChannelId
       let slugs = Object.keys(data.projects);
       if (slugOrChannelId) {
+        // Use legacy resolution by channelId or slug (health is not topic-scoped;
+        // it scans the full project), so we intentionally pass the bare string.
         const project = getProject(data, slugOrChannelId);
         const slug = project ?
           (data.projects[slugOrChannelId] ? slugOrChannelId :

@@ -7,6 +7,7 @@
  * Replaces the manual steps of running glab/gh label create + editing projects.json.
  */
 import { jsonResult } from "openclaw/plugin-sdk";
+import * as pluginSdk from "openclaw/plugin-sdk";
 import type { ToolContext } from "../../types.js";
 import type { PluginContext } from "../../context.js";
 import fs from "node:fs/promises";
@@ -93,6 +94,11 @@ export function createProjectRegisterTool(ctx: PluginContext) {
           type: "string",
           description: "Channel ID — the chat/group ID where this project is managed (e.g. Telegram group ID)",
         },
+        messageThreadId: {
+          type: "number",
+          description:
+            "Optional Telegram forum topic ID (message_thread_id). When provided with channel='telegram', binds the project to this topic instead of the whole chat.",
+        },
         name: {
           type: "string",
           description: "Short project name (e.g. 'my-webapp')",
@@ -125,6 +131,29 @@ export function createProjectRegisterTool(ctx: PluginContext) {
     },
 
     async execute(_id: string, params: Record<string, unknown>) {
+      // #region debug log agent log
+      void fetch("http://127.0.0.1:7466/ingest/5d97a7af-7976-4064-b520-dc7c79f3b068", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Debug-Session-Id": "052428",
+        },
+        body: JSON.stringify({
+          sessionId: "052428",
+          runId: "attach-topic-precheck",
+          hypothesisId: "H1-jsonResult-export-mismatch",
+          location: "devclaw/lib/tools/admin/project-register.ts:execute",
+          message: "Verify openclaw/plugin-sdk.jsonResult at runtime",
+          data: {
+            jsonResultType: typeof jsonResult,
+            pluginSdkJsonResultType: typeof (pluginSdk as unknown as { jsonResult?: unknown }).jsonResult,
+            pluginSdkKeys: Object.keys(pluginSdk as Record<string, unknown>).slice(0, 30),
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+
       const channelId = params.channelId as string;
       const name = params.name as string;
       const repo = params.repo as string;
@@ -133,6 +162,7 @@ export function createProjectRegisterTool(ctx: PluginContext) {
       const baseBranch = params.baseBranch as string;
       const deployBranch = (params.deployBranch as string) ?? baseBranch;
       const deployUrl = (params.deployUrl as string) ?? "";
+      const messageThreadId = params.messageThreadId as number | undefined;
       const workspaceDir = toolCtx.workspaceDir;
 
       if (!workspaceDir) {
@@ -208,6 +238,9 @@ export function createProjectRegisterTool(ctx: PluginContext) {
           channel: channel as "telegram" | "whatsapp" | "discord" | "slack",
           name: `channel-${existing.channels.length + 1}`,
           events: ["*"],
+          ...(messageThreadId != null && channel === "telegram"
+            ? { messageThreadId }
+            : {}),
         };
         existing.channels.push(newChannel);
         if (repoRemote && !existing.repoRemote) {
@@ -226,6 +259,9 @@ export function createProjectRegisterTool(ctx: PluginContext) {
           channel: channel as "telegram" | "whatsapp" | "discord" | "slack",
           name: "primary",
           events: ["*"],
+          ...(messageThreadId != null && channel === "telegram"
+            ? { messageThreadId }
+            : {}),
         };
 
         data.projects[slug] = {

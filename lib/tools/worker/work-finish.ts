@@ -185,6 +185,7 @@ export function createWorkFinishTool(ctx: PluginContext) {
       required: ["channelId", "role", "result"],
       properties: {
         channelId: { type: "string", description: "YOUR chat/group ID — the numeric ID of the chat you are in right now (e.g. '-1003844794417'). Do NOT guess; use the ID of the conversation this message came from." },
+        messageThreadId: { type: "number", description: "Optional Telegram forum topic ID for this project (message_thread_id). When provided, resolves the project bound to this topic within the chat." },
         role: { type: "string", enum: getAllRoleIds(), description: "Worker role" },
         result: { type: "string", enum: ["done", "pass", "fail", "refine", "blocked", "approve", "reject"], description: "Completion result" },
         summary: { type: "string", description: "Brief summary" },
@@ -209,6 +210,7 @@ export function createWorkFinishTool(ctx: PluginContext) {
       const role = params.role as string;
       const result = params.result as string;
       const channelId = resolveChannelId(toolCtx, params.channelId as string | undefined);
+      const messageThreadId = params.messageThreadId as number | undefined;
       const summary = params.summary as string | undefined;
       const prUrl = params.prUrl as string | undefined;
       const createdTasks = params.createdTasks as Array<{ id: number; title: string; url: string }> | undefined;
@@ -221,7 +223,13 @@ export function createWorkFinishTool(ctx: PluginContext) {
       }
 
       // Resolve project + worker
-      const { project } = await resolveProject(workspaceDir, channelId);
+      const channelType = (toolCtx.messageChannel as string | undefined) ?? "telegram";
+      const accountId = toolCtx.agentAccountId as string | undefined;
+      const { project } = await resolveProject(workspaceDir, channelId, {
+        channel: channelType,
+        accountId,
+        messageThreadId,
+      });
       const roleWorker = getRoleWorker(project, role);
 
       // Find the first active slot across all levels that matches this session.

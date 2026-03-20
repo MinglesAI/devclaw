@@ -12,7 +12,7 @@
  * - projects.json format: flat slots → per-level format
  */
 
-import type { RoleWorkerState, SlotState, Project } from "./types.js";
+import type { RoleWorkerState, SlotState, Project, Channel } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Role aliases — old role IDs → canonical IDs
@@ -228,6 +228,25 @@ export function migrateProject(project: Project): boolean {
     }
   } else {
     project.workers = {};
+  }
+
+  // Normalize channel topic fields for Telegram channels:
+  // - Migrate legacy groupId -> channelId (handled below)
+  // - Migrate legacy topicId -> messageThreadId when messageThreadId is missing
+  if (project.channels) {
+    for (const ch of project.channels) {
+      const rawCh = ch as unknown as Record<string, unknown> & Channel;
+
+      // Normalize legacy Telegram topic field: topicId -> messageThreadId
+      if (
+        rawCh.channel === "telegram" &&
+        rawCh.topicId != null &&
+        rawCh.messageThreadId == null
+      ) {
+        rawCh.messageThreadId = Number(rawCh.topicId);
+        changed = true;
+      }
+    }
   }
 
   // Migrate legacy `groupId` field to `channelId` in channel objects.
