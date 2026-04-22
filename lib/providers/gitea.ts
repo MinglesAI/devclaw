@@ -13,9 +13,12 @@ import type {
 } from "./provider.js";
 import { PrState } from "./provider.js";
 import { withResilience } from "./resilience.js";
-import type { WorkflowConfig } from "../workflow.js";
-import { getStateLabels, getLabelColors } from "../labels.js";
-import { DEFAULT_WORKFLOW } from "../workflow.js";
+import {
+  DEFAULT_WORKFLOW,
+  getStateLabels,
+  getLabelColors,
+  type WorkflowConfig,
+} from "../workflow/index.js";
 
 export type GiteaProviderOpts = {
   repoPath: string;
