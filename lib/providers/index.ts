@@ -2,6 +2,7 @@
  * Provider factory — auto-detects GitHub vs GitLab vs Gitea from git remote.
  */
 import type { IssueProvider } from "./provider.js";
+import type { ProviderTarget } from "./provider.js";
 import type { RunCommand } from "../context.js";
 import { GitLabProvider } from "./gitlab.js";
 import { GitHubProvider } from "./github.js";
@@ -12,6 +13,7 @@ export type ProviderOptions = {
   provider?: "gitlab" | "github" | "gitea";
   repo?: string;
   repoPath?: string;
+  target?: ProviderTarget;
   runCommand: RunCommand;
 };
 
@@ -63,14 +65,15 @@ export async function createProvider(opts: ProviderOptions): Promise<ProviderWit
   if (!repoPath) throw new Error("Either repoPath or repo must be provided");
   const rc = opts.runCommand;
   const type = opts.provider ?? (await detectProvider(repoPath, rc));
+  const targetOpts = { repoPath, runCommand: rc, target: opts.target };
 
   switch (type) {
     case "github":
-      return { provider: new GitHubProvider({ repoPath, runCommand: rc }), type };
+      return { provider: new GitHubProvider(targetOpts), type };
     case "gitea":
       return { provider: new GiteaProvider({ repoPath, runCommand: rc }), type };
     case "gitlab":
     default:
-      return { provider: new GitLabProvider({ repoPath, runCommand: rc }), type };
+      return { provider: new GitLabProvider(targetOpts), type };
   }
 }
