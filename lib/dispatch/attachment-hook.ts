@@ -17,7 +17,7 @@ import {
   extractIssueReferences,
   processAttachmentMessage,
 } from "./attachments.js";
-import { readProjects, type Project } from "../projects/index.js";
+import { readProjects, channelIdsMatch, type Project } from "../projects/index.js";
 import { createProvider } from "../providers/index.js";
 import { normalizeRepoTarget } from "../tools/helpers.js";
 import { log as auditLog } from "../audit.js";
@@ -36,13 +36,13 @@ async function resolveProjectFromChannel(
     for (const project of Object.values(projects)) {
       const channels = (project as Project).channels ?? [];
       for (const ch of channels) {
-        if (String(ch.channelId) === String(conversationId)) {
+        if (channelIdsMatch(String(ch.channelId), String(conversationId))) {
           return project as Project;
         }
       }
       // Legacy: check top-level channelId
       const legacy = project as Project & { channelId?: string };
-      if (legacy.channelId && String(legacy.channelId) === String(conversationId)) {
+      if (legacy.channelId && channelIdsMatch(String(legacy.channelId), String(conversationId))) {
         return project as Project;
       }
     }

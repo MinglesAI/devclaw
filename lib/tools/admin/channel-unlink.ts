@@ -8,7 +8,7 @@
 import { jsonResult } from "../../json-result.js";
 import type { PluginContext } from "../../context.js";
 import type { ToolContext } from "../../types.js";
-import { readProjects, writeProjects } from "../../projects/index.js";
+import { readProjects, writeProjects, channelIdsMatch } from "../../projects/index.js";
 import { log as auditLog } from "../../audit.js";
 import { requireWorkspaceDir } from "../helpers.js";
 
@@ -73,7 +73,7 @@ export function createChannelUnlinkTool(_ctx: PluginContext) {
 
       // Find the channel (optionally scoped by messageThreadId)
       const idx = target.channels.findIndex((ch) =>
-        ch.channelId === channelId &&
+        channelIdsMatch(ch.channelId, channelId) &&
         (messageThreadId == null || ch.messageThreadId === messageThreadId)
       );
       if (idx === -1) {

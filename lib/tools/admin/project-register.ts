@@ -11,8 +11,7 @@ import type { ToolContext } from "../../types.js";
 import type { PluginContext } from "../../context.js";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { readProjects, writeProjects, emptyRoleWorkerState } from "../../projects/index.js";
-import { resolveRepoPath } from "../../projects/index.js";
+import { readProjects, writeProjects, emptyRoleWorkerState, resolveRepoPath, channelIdsMatch } from "../../projects/index.js";
 import { createProvider } from "../../providers/index.js";
 import { log as auditLog } from "../../audit.js";
 import { getAllRoleIds, getLevelsForRole } from "../../roles/index.js";
@@ -154,7 +153,7 @@ export function createProjectRegisterTool(ctx: PluginContext) {
 
       // If project exists, check if this channelId is already registered
       if (existing) {
-        const channelExists = existing.channels.some(ch => ch.channelId === channelId);
+        const channelExists = existing.channels.some(ch => channelIdsMatch(ch.channelId, channelId));
         if (channelExists) {
           throw new Error(
             `Channel ${channelId} is already registered for project "${name}". Each channel can only register once per project.`,

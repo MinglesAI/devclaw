@@ -4,6 +4,7 @@
 import type { WorkflowConfig, ReviewPolicy, TestPolicy } from "./types.js";
 import { ReviewPolicy as RP, TestPolicy as TP } from "./types.js";
 import { getLabelColors } from "./queries.js";
+import { channelIdsMatch } from "../projects/channel-id.js";
 
 // ---------------------------------------------------------------------------
 // Step routing labels
@@ -57,7 +58,7 @@ export function resolveNotifyChannel(
         (ch) => ch.channel === channelType && (ch.name === channelName || String(channels.indexOf(ch)) === channelName),
       ) ?? channels[0];
     }
-    return channels.find((ch) => ch.channelId === value) ?? channels[0];
+    return channels.find((ch) => channelIdsMatch(ch.channelId, value)) ?? channels[0];
   }
   return channels[0];
 }

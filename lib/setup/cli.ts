@@ -8,7 +8,7 @@ import type { PluginRuntime } from "openclaw/plugin-sdk";
 import type { PluginContext } from "../context.js";
 import { runSetup } from "./index.js";
 import { getAllDefaultModels, getAllRoleIds, getLevelsForRole } from "../roles/index.js";
-import { readProjects, writeProjects, type Channel } from "../projects/index.js";
+import { readProjects, writeProjects, channelIdsMatch, type Channel } from "../projects/index.js";
 import { log as auditLog } from "../audit.js";
 
 /**
@@ -137,7 +137,7 @@ export function registerCli(program: Command, ctx: PluginContext): void {
         }
 
         // Check if already registered
-        const existing = project.channels.find((ch) => ch.channelId === opts.channelId);
+        const existing = project.channels.find((ch) => channelIdsMatch(ch.channelId, opts.channelId));
         if (existing) {
           console.log(`Channel ${opts.channelId} already registered to project "${project.name}"`);
           return;
@@ -146,7 +146,7 @@ export function registerCli(program: Command, ctx: PluginContext): void {
         // Auto-detach from other projects
         let detachedFrom: string | null = null;
         for (const p of Object.values(data.projects)) {
-          const idx = p.channels.findIndex((ch) => ch.channelId === opts.channelId);
+          const idx = p.channels.findIndex((ch) => channelIdsMatch(ch.channelId, opts.channelId));
           if (idx !== -1) {
             detachedFrom = p.name;
             p.channels.splice(idx, 1);

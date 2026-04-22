@@ -9,6 +9,7 @@ import { ensureWorkspaceMigrated, DATA_DIR } from "../setup/migrate-layout.js";
 import { isLegacySchema, migrateLegacySchema } from "./schema-migration.js";
 import type { ProjectsData, Project } from "./types.js";
 import { emptySlot } from "./slots.js";
+import { channelIdsMatch, normalizeChannelIdForLookup } from "./channel-id.js";
 
 
 // ---------------------------------------------------------------------------
@@ -113,7 +114,8 @@ export function resolveProjectChannelScope(opts: {
 }): string {
   const account = opts.accountId ?? "default";
   const topic = opts.messageThreadId ?? "root";
-  return `${opts.channel}:${account}:${opts.channelId}:topic:${topic}`;
+  const id = normalizeChannelIdForLookup(opts.channelId);
+  return `${opts.channel}:${account}:${id}:topic:${topic}`;
 }
 
 /**
@@ -138,9 +140,9 @@ export function resolveProjectSlug(
       return slugOrChannelId;
     }
 
-    // Reverse lookup by channelId in channels
+    // Reverse lookup by channelId in channels (bare id vs "telegram:-123" etc.)
     for (const [slug, project] of Object.entries(data.projects)) {
-      if (project.channels.some((ch) => ch.channelId === slugOrChannelId)) {
+      if (project.channels.some((ch) => channelIdsMatch(ch.channelId, slugOrChannelId))) {
         return slug;
       }
     }
@@ -153,7 +155,7 @@ export function resolveProjectSlug(
   const requestedChannel = channel ?? "telegram";
   const requestedKey = resolveProjectChannelScope({
     channel: requestedChannel,
-    channelId,
+    channelId: normalizeChannelIdForLookup(channelId),
     accountId,
     messageThreadId,
   });
@@ -164,7 +166,7 @@ export function resolveProjectSlug(
     for (const ch of project.channels) {
       const scopeKey = resolveProjectChannelScope({
         channel: ch.channel,
-        channelId: ch.channelId,
+        channelId: normalizeChannelIdForLookup(ch.channelId),
         accountId: ch.accountId,
         messageThreadId: ch.messageThreadId,
       });
@@ -177,7 +179,7 @@ export function resolveProjectSlug(
       // Record chat-level fallback when messageThreadId is undefined/root
       const isRootScope =
         ch.channel === requestedChannel &&
-        ch.channelId === channelId &&
+        channelIdsMatch(ch.channelId, channelId) &&
         (ch.messageThreadId == null || ch.messageThreadId === ("root" as any));
       if (isRootScope && !fallbackSlug) {
         fallbackSlug = slug;

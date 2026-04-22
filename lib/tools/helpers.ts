@@ -6,7 +6,7 @@
  */
 import type { ToolContext } from "../types.js";
 import type { RunCommand } from "../context.js";
-import { readProjects, getProject, type Project, type ProjectsData } from "../projects/index.js";
+import { readProjects, getProject, channelIdsMatch, type Project, type ProjectsData } from "../projects/index.js";
 import { createProvider, type ProviderWithType } from "../providers/index.js";
 import { loadConfig } from "../config/index.js";
 import { loadInstanceName } from "../instance.js";
@@ -112,7 +112,7 @@ export function applyNotifyLabel(
   existingLabels?: string[],
 ): void {
   const sourceChannel =
-    (sourceChannelId ? project.channels.find(ch => ch.channelId === sourceChannelId) : undefined) ??
+    (sourceChannelId ? project.channels.find(ch => channelIdsMatch(ch.channelId, sourceChannelId)) : undefined) ??
     project.channels[0];
   if (!sourceChannel) return;
 

@@ -344,6 +344,39 @@ describe("readProjects migration", () => {
   });
 });
 
+describe("channelId prefix normalization", () => {
+  it("resolves bare id when projects.json stores telegram: prefix on channelId", () => {
+    const data: ProjectsData = {
+      projects: {
+        up: {
+          slug: "up",
+          name: "Up",
+          repo: "/r",
+          groupName: "Up",
+          deployUrl: "",
+          baseBranch: "main",
+          deployBranch: "main",
+          channels: [
+            { channelId: "telegram:-4862018121", channel: "telegram", name: "primary", events: ["*"] },
+          ],
+          workers: {
+            developer: emptyRoleWorkerState({ junior: 1 }),
+            tester: emptyRoleWorkerState({ junior: 1 }),
+            reviewer: emptyRoleWorkerState({ junior: 1 }),
+            architect: emptyRoleWorkerState({ senior: 1 }),
+          },
+        },
+      },
+    };
+    assert.strictEqual(resolveProjectSlug(data, "-4862018121"), "up");
+    assert.strictEqual(resolveProjectSlug(data, "telegram:-4862018121"), "up");
+    assert.strictEqual(
+      resolveProjectSlug(data, { channelId: "-4862018121", channel: "telegram" }),
+      "up",
+    );
+  });
+});
+
 describe("per-level slot helpers", () => {
   it("findFreeSlot returns lowest inactive slot within a level", () => {
     const rw: RoleWorkerState = {

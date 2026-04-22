@@ -9,7 +9,7 @@
 import { jsonResult } from "../../json-result.js";
 import type { PluginContext } from "../../context.js";
 import type { ToolContext } from "../../types.js";
-import { readProjects, writeProjects, type Channel } from "../../projects/index.js";
+import { readProjects, writeProjects, channelIdsMatch, type Channel } from "../../projects/index.js";
 import { log as auditLog } from "../../audit.js";
 import { requireWorkspaceDir } from "../helpers.js";
 
@@ -86,7 +86,7 @@ export function createChannelLinkTool(_ctx: PluginContext) {
 
       // Already linked to this project for the same scope?
       const alreadyLinked = target.channels.some((ch) =>
-        ch.channelId === channelId &&
+        channelIdsMatch(ch.channelId, channelId) &&
         ch.channel === channelType &&
         (messageThreadId == null || ch.messageThreadId === messageThreadId)
       );
@@ -105,7 +105,7 @@ export function createChannelLinkTool(_ctx: PluginContext) {
       let detachedFrom: string | null = null;
       for (const project of Object.values(data.projects)) {
         const idx = project.channels.findIndex((ch) =>
-          ch.channelId === channelId &&
+          channelIdsMatch(ch.channelId, channelId) &&
           ch.channel === channelType &&
           (messageThreadId == null || ch.messageThreadId === messageThreadId)
         );
