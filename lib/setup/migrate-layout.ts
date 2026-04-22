@@ -66,6 +66,7 @@ export async function migrateWorkspaceLayout(workspaceDir: string): Promise<void
 
   // Already migrated — but may need prompt subdir migration
   if (await fileExists(newProjectsJson)) {
+    await reconcileEmptyProjectsJsonIfLegacyExists(workspaceDir, dataDir, newProjectsJson);
     await migratePromptSubdirs(dataDir);
     return;
   }
@@ -243,6 +244,58 @@ async function migrateFromOldLayout(workspaceDir: string, dataDir: string): Prom
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * If `devclaw/projects.json` is empty but a legacy `projects.json` (root or
+ * `projects/projects.json`) still holds project entries, copy the legacy file
+ * over the empty registry. Prevents a create-only empty file from masking real
+ * data when layout migration ran after scaffolding (#521).
+ */
+async function reconcileEmptyProjectsJsonIfLegacyExists(
+  workspaceDir: string,
+  _dataDir: string,
+  newProjectsJson: string,
+): Promise<void> {
+  let data: { projects?: Record<string, unknown> };
+  try {
+    const raw = await fs.readFile(newProjectsJson, "utf-8");
+    data = JSON.parse(raw) as { projects?: Record<string, unknown> };
+  } catch {
+    return;
+  }
+  const keys = data?.projects && typeof data.projects === "object"
+    ? Object.keys(data.projects)
+    : [];
+  if (keys.length > 0) return;
+
+  const candidates = [
+    path.join(workspaceDir, "projects.json"),
+    path.join(workspaceDir, "projects", "projects.json"),
+  ];
+  for (const candidate of candidates) {
+    if (!await fileExists(candidate)) continue;
+    try {
+      const raw = await fs.readFile(candidate, "utf-8");
+      const legacy = JSON.parse(raw) as { projects?: Record<string, unknown> };
+      const legacyKeys = legacy?.projects && typeof legacy.projects === "object"
+        ? Object.keys(legacy.projects)
+        : [];
+      if (legacyKeys.length === 0) continue;
+
+      const backup = `${newProjectsJson}.empty-registry-backup`;
+      try {
+        await fs.copyFile(newProjectsJson, backup);
+      } catch { /* best-effort */ }
+      await safeCopy(candidate, newProjectsJson);
+      if (candidate === path.join(workspaceDir, "projects.json")) {
+        try { await fs.unlink(candidate); } catch { /* race */ }
+      }
+      return;
+    } catch {
+      continue;
+    }
+  }
+}
 
 async function fileExists(p: string): Promise<boolean> {
   try { await fs.access(p); return true; } catch { return false; }

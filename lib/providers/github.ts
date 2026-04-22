@@ -395,6 +395,58 @@ export class GitHubProvider implements IssueProvider {
     return { state: PrState.CLOSED, url: null };
   }
 
+  async getPrStatusByUrl(prUrl: string): Promise<PrStatus | null> {
+    const m = prUrl.match(/\/pull\/(\d+)/i);
+    if (!m) return null;
+    const num = Number(m[1]);
+    try {
+      type View = {
+        url: string;
+        state: string;
+        title: string;
+        headRefName: string;
+        mergeable: string;
+        reviewDecision: string;
+      };
+      const raw = await this.gh([
+        "pr", "view", String(num),
+        "--json", "url,state,title,headRefName,mergeable,reviewDecision",
+      ]);
+      const pr = JSON.parse(raw) as View;
+      if (pr.state === "MERGED") {
+        return { state: PrState.MERGED, url: pr.url, title: pr.title, sourceBranch: pr.headRefName };
+      }
+      if (pr.state === "CLOSED") {
+        return { state: PrState.CLOSED, url: pr.url, title: pr.title, sourceBranch: pr.headRefName };
+      }
+      let state: PrState;
+      if (pr.reviewDecision === "APPROVED") {
+        state = PrState.APPROVED;
+      } else if (pr.reviewDecision === "CHANGES_REQUESTED") {
+        state = PrState.CHANGES_REQUESTED;
+      } else {
+        const hasChangesRequested = await this.hasChangesRequestedReview(num);
+        if (hasChangesRequested) {
+          state = PrState.CHANGES_REQUESTED;
+        } else {
+          const hasReviewFeedback = await this.hasUnacknowledgedReviews(num);
+          if (hasReviewFeedback) {
+            state = PrState.HAS_COMMENTS;
+          } else {
+            const hasComments = await this.hasConversationComments(num);
+            state = hasComments ? PrState.HAS_COMMENTS : PrState.OPEN;
+          }
+        }
+      }
+      const mergeable = pr.mergeable === "CONFLICTING" ? false
+        : pr.mergeable === "MERGEABLE" ? true
+        : undefined;
+      return { state, url: pr.url, title: pr.title, sourceBranch: pr.headRefName, mergeable };
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Check individual reviews for CHANGES_REQUESTED state.
    * Used when branch protection is disabled (reviewDecision is empty).

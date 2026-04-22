@@ -90,6 +90,7 @@ export async function executeCompletion(opts: {
   const { timeouts } = await loadConfig(workspaceDir, projectName);
   let prUrl = opts.prUrl;
   let mergedPr = false;
+  let mergePrAttempted = false;
   let prTitle: string | undefined;
   let sourceBranch: string | undefined;
 
@@ -113,6 +114,7 @@ export async function executeCompletion(opts: {
         } }
         break;
       case Action.MERGE_PR:
+        mergePrAttempted = true;
         try {
           // Grab PR metadata before merging (the MR is still open at this point)
           if (!prTitle) {
@@ -130,6 +132,12 @@ export async function executeCompletion(opts: {
         }
         break;
     }
+  }
+
+  if (mergePrAttempted && !mergedPr) {
+    const msg = `Merge PR failed for issue #${issueId}; aborting completion (label transition skipped).`;
+    await auditLog(workspaceDir, "pipeline_error", { step: "mergePr", issue: issueId, role, error: msg }).catch(() => {});
+    throw new Error(msg);
   }
 
   // Get issue early (for URL in notification + channel routing)
@@ -177,6 +185,7 @@ export async function executeCompletion(opts: {
       runtime,
       accountId: notifyTarget?.accountId,
       messageThreadId: notifyTarget?.messageThreadId,
+      runCommand: rc,
     },
   ).catch((err) => {
     auditLog(workspaceDir, "pipeline_warning", { step: "notify", issue: issueId, role, error: (err as Error).message ?? String(err) }).catch(() => {});
@@ -196,7 +205,7 @@ export async function executeCompletion(opts: {
         sourceBranch,
         mergedBy: "pipeline",
       },
-      { workspaceDir, config: notifyConfig, channelId: notifyTarget?.channelId, channel: notifyTarget?.channel ?? "telegram", runtime, accountId: notifyTarget?.accountId, messageThreadId: notifyTarget?.messageThreadId },
+      { workspaceDir, config: notifyConfig, channelId: notifyTarget?.channelId, channel: notifyTarget?.channel ?? "telegram", runtime, accountId: notifyTarget?.accountId, messageThreadId: notifyTarget?.messageThreadId, runCommand: rc },
     ).catch((err) => {
       auditLog(workspaceDir, "pipeline_warning", { step: "mergeNotify", issue: issueId, role, error: (err as Error).message ?? String(err) }).catch(() => {});
     });
@@ -230,6 +239,7 @@ export async function executeCompletion(opts: {
             channel: notifyTarget?.channel ?? "telegram",
             runtime,
             accountId: notifyTarget?.accountId,
+            runCommand: rc,
           },
         ).catch((err) => {
           auditLog(workspaceDir, "pipeline_warning", { step: "issueCompleteNotify", issue: issueId, role, error: (err as Error).message ?? String(err) }).catch(() => {});
@@ -268,6 +278,7 @@ export async function executeCompletion(opts: {
           runtime,
           accountId: notifyTarget?.accountId,
           messageThreadId: notifyTarget?.messageThreadId,
+          runCommand: rc,
         },
       ).catch((err) => {
         auditLog(workspaceDir, "pipeline_warning", { step: "reviewNotify", issue: issueId, role, error: (err as Error).message ?? String(err) }).catch(() => {});

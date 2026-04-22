@@ -86,6 +86,11 @@ export interface IssueProvider {
   reopenIssue(issueId: number): Promise<void>;
   getMergedMRUrl(issueId: number): Promise<string | null>;
   getPrStatus(issueId: number): Promise<PrStatus>;
+  /**
+   * Resolve PR/MR status from an explicit web URL (e.g. follow-up PR not linked as the issue's primary MR).
+   * Return null if the URL is unsupported or the PR cannot be resolved.
+   */
+  getPrStatusByUrl?(prUrl: string): Promise<PrStatus | null>;
   mergePr(issueId: number): Promise<void>;
   getPrDiff(issueId: number): Promise<string | null>;
   /** Get review comments on the PR linked to an issue. */

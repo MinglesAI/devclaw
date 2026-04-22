@@ -12,7 +12,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ToolContext } from "../../types.js";
 import type { PluginContext, RunCommand } from "../../context.js";
-import { getRoleWorker, resolveRepoPath, findSlotByIssue } from "../../projects/index.js";
+import type { PrStatus } from "../../providers/provider.js";
+import { getRoleWorker, resolveRepoPath } from "../../projects/index.js";
 import { executeCompletion, getRule } from "../../services/pipeline.js";
 import { log as auditLog } from "../../audit.js";
 import { DATA_DIR } from "../../setup/migrate-layout.js";
@@ -77,6 +78,10 @@ async function isConflictResolutionCycle(
  *   - We check `url === null` rather than the state field to be explicit:
  *     a null URL unambiguously means "nothing found", regardless of state label.
  */
+function normalizePrUrl(u: string): string {
+  return u.replace(/\/$/, "").toLowerCase();
+}
+
 async function validatePrExistsForDeveloper(
   issueId: number,
   repoPath: string,
@@ -84,9 +89,52 @@ async function validatePrExistsForDeveloper(
   runCommand: RunCommand,
   workspaceDir: string,
   projectSlug: string,
+  prUrlExplicit?: string,
 ): Promise<void> {
   try {
-    const prStatus = await provider.getPrStatus(issueId);
+    const explicit = prUrlExplicit?.trim();
+    let prStatus: PrStatus;
+    let resolvedByDirectUrl = false;
+
+    if (explicit && typeof provider.getPrStatusByUrl === "function") {
+      const byUrl = await provider.getPrStatusByUrl(explicit);
+      if (byUrl?.url) {
+        prStatus = byUrl;
+        resolvedByDirectUrl = true;
+      } else {
+        prStatus = await provider.getPrStatus(issueId);
+        if (prStatus.url && normalizePrUrl(prStatus.url) !== normalizePrUrl(explicit)) {
+          throw new Error(
+            `Cannot mark work_finish(done): explicit PR URL does not match the PR linked to this issue.\n\n` +
+            `Issue-linked PR: ${prStatus.url}\nGiven: ${explicit}\n\n` +
+            `Use the PR URL that matches your work, or omit prUrl when finishing on the primary PR for this issue.`,
+          );
+        }
+        if (!prStatus.url) {
+          throw new Error(
+            `Cannot mark work_finish(done): could not resolve explicit PR and no PR is linked to this issue.\n\n` +
+            `Given: ${explicit}\n\n` +
+            `Check the URL, or create/link a PR for issue #${issueId} and try again.`,
+          );
+        }
+      }
+    } else {
+      prStatus = await provider.getPrStatus(issueId);
+      if (explicit) {
+        if (prStatus.url && normalizePrUrl(prStatus.url) !== normalizePrUrl(explicit)) {
+          throw new Error(
+            `Cannot mark work_finish(done): explicit PR URL does not match the PR linked to this issue.\n\n` +
+            `Issue-linked PR: ${prStatus.url}\nGiven: ${explicit}`,
+          );
+        }
+        if (!prStatus.url) {
+          throw new Error(
+            `Cannot mark work_finish(done): no PR linked to this issue; explicit PR URLs require a provider ` +
+            `that implements getPrStatusByUrl (e.g. GitHub/GitLab).\n\nGiven: ${explicit}`,
+          );
+        }
+      }
+    }
 
     // url is null when getPrStatus found no open or merged PR for this issue.
     // This covers both "no PR ever created" and "PR was closed without merging".
@@ -112,16 +160,16 @@ async function validatePrExistsForDeveloper(
     // getPrStatus locates PRs via the issue tracker's linked-PR API, so any
     // non-null url already implies the PR references the issue.
 
-    // Mark PR as "seen" (with eyes emoji) if not already marked.
-    // This helps distinguish system-created PRs from human responses.
-    // Best-effort — don't block completion if this fails.
-    try {
-      const hasEyes = await provider.prHasReaction(issueId, "eyes");
-      if (!hasEyes) {
-        await provider.reactToPr(issueId, "eyes");
+    // Mark PR as "seen" (with eyes emoji) if not already marked (issue-linked PR only).
+    if (!resolvedByDirectUrl) {
+      try {
+        const hasEyes = await provider.prHasReaction(issueId, "eyes");
+        if (!hasEyes) {
+          await provider.reactToPr(issueId, "eyes");
+        }
+      } catch {
+        // Ignore errors — marking is cosmetic
       }
-    } catch {
-      // Ignore errors — marking is cosmetic
     }
 
     // Conflict resolution validation: When an issue returns from "To Improve" due to
@@ -168,7 +216,10 @@ async function validatePrExistsForDeveloper(
   } catch (err) {
     // Re-throw our own validation errors; swallow provider/network errors.
     // Swallowing keeps work_finish unblocked when the API is unreachable.
-    if (err instanceof Error && (err.message.startsWith("Cannot mark work_finish(done)") || err.message.startsWith("Cannot complete work_finish(done)"))) {
+    if (err instanceof Error && (
+      err.message.startsWith("Cannot mark work_finish(done)") ||
+      err.message.startsWith("Cannot complete work_finish(done)")
+    )) {
       throw err;
     }
     console.warn(`PR validation warning for issue #${issueId}:`, err);
@@ -182,9 +233,10 @@ export function createWorkFinishTool(ctx: PluginContext) {
     description: `Complete a task: Developer done (PR created, goes to review) or blocked. Tester pass/fail/refine/blocked. Reviewer approve/reject/blocked. Architect done/blocked. Handles label transition, state update, issue close/reopen, notifications, and audit logging.`,
     parameters: {
       type: "object",
-      required: ["channelId", "role", "result"],
+      required: ["role", "result"],
       properties: {
-        channelId: { type: "string", description: "YOUR chat/group ID — the numeric ID of the chat you are in right now (e.g. '-1003844794417'). Do NOT guess; use the ID of the conversation this message came from." },
+        channelId: { type: "string", description: "YOUR chat/group ID — the numeric ID of the chat you are in right now (e.g. '-1003844794417'). Required unless projectSlug is set." },
+        projectSlug: { type: "string", description: "Project slug from projects.json (alternative to channelId when the tool is invoked without a chat binding)." },
         messageThreadId: { type: "number", description: "Optional Telegram forum topic ID for this project (message_thread_id). When provided, resolves the project bound to this topic within the chat." },
         role: { type: "string", enum: getAllRoleIds(), description: "Worker role" },
         result: { type: "string", enum: ["done", "pass", "fail", "refine", "blocked", "approve", "reject"], description: "Completion result" },
@@ -209,7 +261,12 @@ export function createWorkFinishTool(ctx: PluginContext) {
     async execute(_id: string, params: Record<string, unknown>) {
       const role = params.role as string;
       const result = params.result as string;
-      const channelId = resolveChannelId(toolCtx, params.channelId as string | undefined);
+      const projectSlugParam = (params.projectSlug as string | undefined)?.trim();
+      const channelIdParam = params.channelId as string | undefined;
+      const channelKey = projectSlugParam ?? resolveChannelId(toolCtx, channelIdParam);
+      if (!projectSlugParam && !channelIdParam) {
+        throw new Error("Either channelId or projectSlug is required.");
+      }
       const messageThreadId = params.messageThreadId as number | undefined;
       const summary = params.summary as string | undefined;
       const prUrl = params.prUrl as string | undefined;
@@ -225,7 +282,7 @@ export function createWorkFinishTool(ctx: PluginContext) {
       // Resolve project + worker
       const channelType = (toolCtx.messageChannel as string | undefined) ?? "telegram";
       const accountId = toolCtx.agentAccountId as string | undefined;
-      const { project } = await resolveProject(workspaceDir, channelId, {
+      const { project } = await resolveProject(workspaceDir, channelKey, {
         channel: channelType,
         accountId,
         messageThreadId,
@@ -270,7 +327,7 @@ export function createWorkFinishTool(ctx: PluginContext) {
 
       // For developers marking work as done, validate that a PR exists
       if (role === "developer" && result === "done") {
-        await validatePrExistsForDeveloper(issueId, repoPath, provider, ctx.runCommand, workspaceDir, project.slug);
+        await validatePrExistsForDeveloper(issueId, repoPath, provider, ctx.runCommand, workspaceDir, project.slug, prUrl);
       }
 
       const completion = await executeCompletion({

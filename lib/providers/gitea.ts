@@ -205,6 +205,37 @@ export class GiteaProvider implements IssueProvider {
     }
   }
 
+  async getPrStatusByUrl(prUrl: string): Promise<PrStatus | null> {
+    const normalized = prUrl.replace(/\/$/, "");
+    try {
+      const raw = await this.tea(["pull", "list", "--output", "json"]);
+      const prs = JSON.parse(raw) as Array<{
+        html_url?: string;
+        state?: string;
+        title?: string;
+        head?: { ref?: string };
+        mergeable?: boolean;
+      }>;
+      const pr = prs.find((p) => {
+        const u = p.html_url?.replace(/\/$/, "");
+        return u && (u === normalized || normalized.endsWith(u) || u.endsWith(normalized));
+      });
+      if (!pr) return null;
+      const state = pr.state === "merged" ? PrState.MERGED :
+        pr.state === "closed" ? PrState.CLOSED :
+        PrState.OPEN;
+      return {
+        state,
+        url: pr.html_url ?? null,
+        title: pr.title,
+        sourceBranch: pr.head?.ref,
+        mergeable: pr.mergeable,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   async mergePr(issueId: number): Promise<void> {
     // Find PR mentioning the issue
     const raw = await this.tea(["pull", "list", "--output", "json"]);
