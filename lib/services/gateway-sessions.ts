@@ -35,11 +35,12 @@ export type SessionLookup = Map<string, GatewaySession>;
 export async function fetchGatewaySessions(gatewayTimeoutMs = 15_000, runCommand: RunCommand): Promise<SessionLookup | null> {
   const rc = runCommand;
   const lookup: SessionLookup = new Map();
+  const timeoutMs = gatewayTimeoutMs ?? 15_000;
 
   try {
     const result = await rc(
       ["openclaw", "gateway", "call", "status", "--json"],
-      { timeoutMs: gatewayTimeoutMs },
+      { timeoutMs: timeoutMs },
     );
 
     const jsonStart = result.stdout.indexOf("{");

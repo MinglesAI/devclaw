@@ -85,6 +85,14 @@ export type NotifyEvent =
       issueUrl: string;
       issueTitle: string;
       prUrl?: string;
+    }
+  | {
+      type: "issueComplete";
+      project: string;
+      issueId: number;
+      issueUrl: string;
+      issueTitle: string;
+      prUrl?: string;
     };
 
 /**
@@ -245,6 +253,15 @@ function buildMessage(event: NotifyEvent): string {
       msg += `\n→ Moving to To Improve for developer attention`;
       return msg;
     }
+
+    case "issueComplete": {
+      let msg = `🏁 Issue completed: #${event.issueId} — ${event.issueTitle}`;
+      msg += `\n📦 Project: ${event.project}`;
+      if (event.prUrl) msg += `\n🔗 ${prLink(event.prUrl)}`;
+      msg += `\n📋 [Issue #${event.issueId}](${event.issueUrl})`;
+      msg += `\n✅ Issue closed — work delivered.`;
+      return msg;
+    }
   }
 }
 
@@ -262,35 +279,45 @@ async function sendMessage(
   runtime?: PluginRuntime,
   accountId?: string,
   runCommand?: RunCommand,
+  messageThreadId?: number,
 ): Promise<boolean> {
-  try {
-    // Use runtime API when available (avoids CLI subprocess timeouts)
-    if (runtime) {
-      if (channel === "telegram") {
-        // Cast to any to bypass TypeScript type limitation; disableWebPagePreview is valid in Telegram API
-        await runtime.channel.telegram.sendMessageTelegram(target, message, { silent: true, disableWebPagePreview: true, accountId } as any);
+  if (runtime) {
+    try {
+      if (channel === "telegram" && runtime.channel?.telegram?.sendMessageTelegram) {
+        const telegramOpts: Record<string, unknown> = { silent: true, disableWebPagePreview: true, accountId };
+        if (messageThreadId != null) telegramOpts.messageThreadId = messageThreadId;
+        await runtime.channel.telegram.sendMessageTelegram(target, message, telegramOpts as any);
         return true;
       }
-      if (channel === "whatsapp") {
+      if (channel === "whatsapp" && runtime.channel?.whatsapp?.sendMessageWhatsApp) {
         await runtime.channel.whatsapp.sendMessageWhatsApp(target, message, { verbose: false, accountId });
         return true;
       }
-      if (channel === "discord") {
+      if (channel === "discord" && runtime.channel?.discord?.sendMessageDiscord) {
         await runtime.channel.discord.sendMessageDiscord(target, message, { accountId });
         return true;
       }
-      if (channel === "slack") {
+      if (channel === "slack" && runtime.channel?.slack?.sendMessageSlack) {
         await runtime.channel.slack.sendMessageSlack(target, message, { accountId });
         return true;
       }
-      if (channel === "signal") {
+      if (channel === "signal" && runtime.channel?.signal?.sendMessageSignal) {
         await runtime.channel.signal.sendMessageSignal(target, message, { accountId });
         return true;
       }
+    } catch (runtimeErr) {
+      await auditLog(workspaceDir, "notify_runtime_fallback", {
+        target,
+        channel,
+        error: (runtimeErr as Error).message ?? String(runtimeErr),
+      }).catch(() => {});
     }
+  }
 
-    // Fallback: use CLI (for unsupported channels or when runtime isn't available)
-    if (!runCommand) throw new Error("runCommand is required when runtime is not available");
+  try {
+    if (!runCommand) {
+      throw new Error("runCommand is required when runtime is unavailable or runtime send failed");
+    }
     const rc = runCommand;
     // Note: openclaw message send CLI doesn't expose disable_web_page_preview flag.
     // The runtime API path (above) handles it; CLI fallback won't suppress previews.
@@ -311,7 +338,6 @@ async function sendMessage(
     );
     return true;
   } catch (err) {
-    // Log but don't throw — notifications shouldn't break the main flow
     await auditLog(workspaceDir, "notify_error", {
       target,
       channel,
@@ -341,6 +367,8 @@ export async function notify(
     accountId?: string;
     /** Injected runCommand for dependency injection. */
     runCommand?: RunCommand;
+    /** Optional Telegram forum topic ID for per-topic routing */
+    messageThreadId?: number;
   },
 ): Promise<boolean> {
   if (opts.config?.[event.type] === false) return true;
@@ -364,7 +392,7 @@ export async function notify(
     message,
   });
 
-  return sendMessage(target, message, channel, opts.workspaceDir, opts.runtime, opts.accountId, opts.runCommand);
+  return sendMessage(target, message, channel, opts.workspaceDir, opts.runtime, opts.accountId, opts.runCommand, opts.messageThreadId);
 }
 
 /**

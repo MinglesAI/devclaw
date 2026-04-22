@@ -10,6 +10,7 @@ import {
   type PrReviewComment,
   PrState,
 } from "./provider.js";
+import type { ProviderTarget } from "./provider.js";
 import type { RunCommand } from "../context.js";
 import { withResilience } from "./resilience.js";
 import {
@@ -35,16 +36,19 @@ export class GitLabProvider implements IssueProvider {
   private repoPath: string;
   private workflow: WorkflowConfig;
   private runCommand: RunCommand;
+  private targetRepo?: string;
 
-  constructor(opts: { repoPath: string; runCommand: RunCommand; workflow?: WorkflowConfig }) {
+  constructor(opts: { repoPath: string; runCommand: RunCommand; workflow?: WorkflowConfig; target?: ProviderTarget }) {
     this.repoPath = opts.repoPath;
     this.runCommand = opts.runCommand;
     this.workflow = opts.workflow ?? DEFAULT_WORKFLOW;
+    this.targetRepo = opts.target?.repo;
   }
 
   private async glab(args: string[]): Promise<string> {
     return withResilience(async () => {
-      const result = await this.runCommand(["glab", ...args], { timeoutMs: 30_000, cwd: this.repoPath });
+      const fullArgs = this.targetRepo && !args.includes("--repo") ? ["glab", ...args, "--repo", this.targetRepo] : ["glab", ...args];
+      const result = await this.runCommand(fullArgs, { timeoutMs: 30_000, cwd: this.repoPath });
       return result.stdout.trim();
     });
   }
@@ -226,6 +230,44 @@ export class GitLabProvider implements IssueProvider {
     const closed = mrs.find((mr) => mr.state === "closed");
     if (closed) return { state: PrState.CLOSED, url: closed.web_url, title: closed.title, sourceBranch: closed.source_branch };
     return { state: PrState.CLOSED, url: null };
+  }
+
+  async getPrStatusByUrl(prUrl: string): Promise<PrStatus | null> {
+    const m = prUrl.match(/\/merge_requests\/(\d+)/i);
+    if (!m) return null;
+    const iid = Number(m[1]);
+    try {
+      const raw = await this.glab(["api", `projects/:id/merge_requests/${iid}?include_rebase_in_progress=true`]);
+      const mr = JSON.parse(raw) as {
+        web_url: string;
+        state: string;
+        title: string;
+        source_branch: string;
+      };
+      if (mr.state === "merged") {
+        return { state: PrState.MERGED, url: mr.web_url, title: mr.title, sourceBranch: mr.source_branch };
+      }
+      if (mr.state === "closed") {
+        return { state: PrState.CLOSED, url: mr.web_url, title: mr.title, sourceBranch: mr.source_branch };
+      }
+      const approved = await this.isMrApproved(iid);
+      let state: PrState;
+      if (approved) {
+        state = PrState.APPROVED;
+      } else {
+        const hasUnresolved = await this.hasUnresolvedDiscussions(iid);
+        if (hasUnresolved) {
+          state = PrState.CHANGES_REQUESTED;
+        } else {
+          const hasComments = await this.hasConversationComments(iid);
+          state = hasComments ? PrState.HAS_COMMENTS : PrState.OPEN;
+        }
+      }
+      const mergeable = await this.isMrMergeable(iid);
+      return { state, url: mr.web_url, title: mr.title, sourceBranch: mr.source_branch, mergeable };
+    } catch {
+      return null;
+    }
   }
 
   /** Check if an MR has unresolved discussion threads (proxy for changes requested). */

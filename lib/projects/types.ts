@@ -33,6 +33,11 @@ export type Channel = {
   name: string; // e.g. "primary", "dev-chat"
   events: string[]; // e.g. ["*"] for all, ["workerComplete"] for filtered
   accountId?: string; // Optional account ID for multi-account setups
+  /**
+   * Telegram forum topic ID used for topic-scoped routing.
+   * Mirrors Telegram API naming for clarity and interoperability.
+   */
+  messageThreadId?: number;
 };
 
 /**
@@ -49,8 +54,8 @@ export type Project = {
   deployBranch: string;
   /** Channels registered for this project (notification endpoints). */
   channels: Channel[];
-  /** Issue tracker provider type (github or gitlab). Auto-detected at registration, stored for reuse. */
-  provider?: "github" | "gitlab";
+  /** Issue tracker provider type. Auto-detected at registration, stored for reuse. */
+  provider?: "github" | "gitlab" | "gitea";
   /** Worker state per role (developer, tester, architect, or custom roles). Shared across all channels. */
   workers: Record<string, RoleWorkerState>;
 };
@@ -66,7 +71,7 @@ export type LegacyProject = {
   baseBranch: string;
   deployBranch: string;
   channel?: string;
-  provider?: "github" | "gitlab";
+  provider?: "github" | "gitlab" | "gitea";
   workers: Record<string, RoleWorkerState>;
 };
 

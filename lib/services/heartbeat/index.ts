@@ -145,7 +145,7 @@ async function processAllAgents(
   }
 
   // Fetch gateway sessions once for all agents/projects
-  const sessions = await fetchGatewaySessions(undefined, runCommand);
+  const sessions = await fetchGatewaySessions(15_000, runCommand);
 
   for (const { agentId, workspace } of agents) {
     const agentResult = await tick({

@@ -45,6 +45,7 @@ import {
   getCurrentStateLabel,
   isOwnedByOrUnclaimed,
   isFeedbackState,
+  resolveNotifyChannel,
   type WorkflowConfig,
   type Role,
 } from "../../workflow/index.js";
@@ -80,7 +81,8 @@ export type HealthIssue = {
     | "orphaned_label"       // Case 7: active label but no worker tracking it
     | "context_overflow"     // Case 1c: active worker but session hit context limit (abortedLastRun)
     | "session_stalled"     // Active worker but session inactive for >stallTimeoutMinutes
-    | "stateless_issue";     // Case 8: open managed issue with no state label (#473)
+    | "stateless_issue"     // Case 8: open managed issue with no state label (#473)
+    | "zombie_slot";        // Active slot with missing startTime but live session (#498)
   severity: "critical" | "warning";
   project: string;
   projectSlug: string;
@@ -419,11 +421,45 @@ export async function checkWorkerHealth(opts: {
         }
       }
 
+      // Case 1d: Active with live session but missing startTime (inconsistent state / reload) — treat as zombie
+      if (slot.active && !slot.startTime && sessionKey && sessions && isSessionAlive(sessionKey, sessions)) {
+        if (!withinGracePeriod) {
+          const fix: HealthFix = {
+            issue: {
+              type: "zombie_slot",
+              severity: "critical",
+              project: project.name,
+              projectSlug,
+              role,
+              level,
+              sessionKey,
+              issueId: slot.issueId,
+              slotIndex,
+              message: `${role.toUpperCase()} ${level}[${slotIndex}] active with live session but no startTime — clearing slot`,
+            },
+            fixed: false,
+          };
+          if (autoFix) {
+            if (issue && currentLabel === expectedLabel) {
+              await revertLabel(fix, expectedLabel, slotQueueLabel);
+            }
+            await deactivateSlot();
+            fix.fixed = true;
+          }
+          fixes.push(fix);
+          continue;
+        }
+      }
+
       // Case: Active with alive session but no recent activity (stalled)
       if (slot.active && sessionKey && sessions && !withinGracePeriod && isSessionAlive(sessionKey, sessions)) {
         const session = sessions.get(sessionKey)!;
         const stallThresholdMs = (opts.stallTimeoutMinutes ?? 15) * 60_000;
-        const sessionIdleMs = Date.now() - (session.updatedAt || 0);
+        const updatedAt = session.updatedAt ?? 0;
+        if (updatedAt <= 0) {
+          continue;
+        }
+        const sessionIdleMs = Date.now() - updatedAt;
 
         if (sessionIdleMs > stallThresholdMs) {
           const idleMinutes = Math.round(sessionIdleMs / 60_000);
@@ -456,6 +492,9 @@ export async function checkWorkerHealth(opts: {
               await deactivateSlot();
             } else {
               // Task arrived but worker stalled → nudge the session
+              const notifyTarget = issue
+                ? resolveNotifyChannel(issue.labels, project.channels)
+                : undefined;
               sendToAgent(sessionKey, NUDGE_MESSAGE, {
                 agentId: opts.agentId,
                 projectName: project.name,
@@ -465,6 +504,7 @@ export async function checkWorkerHealth(opts: {
                 slotIndex,
                 workspaceDir,
                 runCommand: opts.runCommand,
+                notifyTarget,
               });
               fix.nudgeSent = true;
             }
